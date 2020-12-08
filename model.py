@@ -130,6 +130,10 @@ class AIAYNTransformerDecoderLayer(torch.nn.Module):
 
 
 class PositionalEncoding(torch.nn.Module):
+    """
+    Positional encoding class. Performs adds the input to its positional encoding.
+    """
+
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, d_model)

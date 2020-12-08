@@ -1,5 +1,5 @@
 import dill as pickle
-from torchtext.data import Dataset, BucketIterator
+from torchtext.data import Dataset
 
 
 def load_datasets(path, verbose=False):
@@ -41,27 +41,3 @@ def load_datasets(path, verbose=False):
         'val': val,
         # 'test': test
     }
-
-
-def get_dataloaders(data, batch_size, device):
-    """
-
-    :param data: data size
-    :param batch_size: batch size
-    :param device: device where the batches have to be moved
-    :return:
-    """
-
-    train_iterator = BucketIterator(data['train'], batch_size=batch_size, device=device, train=True)
-    val_iterator = BucketIterator(data['val'], batch_size=batch_size, device=device)
-    return train_iterator, val_iterator
-
-# if __name__ == "__main__":
-#     train, val = get_dataloaders(load_datasets("dataset/m30k_deen_shr.pkl", verbose=True), 32, 'cpu')
-#     for b in train:
-#         src, trg = b.src, b.trg
-#         print(src.shape)
-#         pass
-#     load_datasets("dataset/preprocessed.pkl", verbose=True)
-#
-#     pass

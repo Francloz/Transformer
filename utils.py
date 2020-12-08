@@ -109,6 +109,15 @@ def loss_f(out, trg, eps=0.1, smoothing=True, loss=torch.nn.BCELoss(reduction='m
 
 
 def calc_metrics(out, trg) -> torch.Tensor:
+    """
+    Calculates the metrics necessary to evaluate how good the model is.
+
+    For now, it has two zeros as placeholders.
+
+    :param out: output of the model.
+    :param trg: target translation.
+    :return: number of tokens, number of correct tokens, placeholder, placeholder
+    """
     words = torch.Tensor([trg.shape[0] * trg.shape[1]])
     _, decisions = torch.max(out, dim=2)
     correct = torch.sum(decisions == trg).view((-1,))
@@ -116,6 +125,14 @@ def calc_metrics(out, trg) -> torch.Tensor:
 
 
 def load_model(path, vocab_size, device):
+    """
+    Loads the model from the given path to the given device together with the optimizer.
+
+    :param path: path to the checkpoint file.
+    :param vocab_size: size of the vocabulary.
+    :param device: device (cuda or cpu).
+    :return:
+    """
     checkpoint = torch.load(path, map_location=device)
     epoch_i = checkpoint['epoch']
     settings = checkpoint['settings']

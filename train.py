@@ -2,23 +2,25 @@ import argparse
 import os
 import time
 
-from tqdm import tqdm
-
 from model import *
 from utils import *
 
 
 def eval_epoch(model, validation_data):
-    ''' Epoch operation in evaluation phase '''
+    """
+    Validation step. Tests the model using the validation data.
+
+    :param model:
+    :param validation_data:
+    :return: metrics uses to measure the accuracy of the model
+    """
 
     model.eval()
     total_loss, n_word_total, n_word_correct = 0, 0, 0
     total_metrics = torch.zeros(4)
-    k = 0
 
     with torch.no_grad():
         for batch in validation_data:
-            k += 0
             # prepare data
             src, trg = batch.src, batch.trg
             src, trg = truncate(src, trg)
@@ -30,8 +32,8 @@ def eval_epoch(model, validation_data):
             metrics = calc_metrics(out, trg)
             total_metrics += metrics
 
-    if metrics[0] > 0:
-        loss_per_word = total_loss / k  # / total_metrics[0]
+    if len(validation_data) > 0:
+        loss_per_word = total_loss / len(validation_data)
         accuracy = total_metrics[1] / total_metrics[0]
     else:
         loss_per_word = -1
@@ -39,7 +41,7 @@ def eval_epoch(model, validation_data):
     return loss_per_word, accuracy
 
 
-def train_epoch(model, training_data, optimizer, print_freq=10, nbatches=-1):
+def train_epoch(model, training_data, optimizer, print_freq=2, nbatches=-1):
     """
     Trains one epoch.
 
@@ -58,8 +60,9 @@ def train_epoch(model, training_data, optimizer, print_freq=10, nbatches=-1):
     total_metrics = torch.zeros(4)
 
     k = 0
-    for batch in tqdm(training_data, mininterval=1, leave=False):
-        # for batch in training_data:
+    t0 = time.perf_counter()
+    # for batch in tqdm(training_data, mininterval=1, leave=False):
+    for batch in training_data:
         k += 1
         if k > nbatches:
             break
@@ -81,15 +84,17 @@ def train_epoch(model, training_data, optimizer, print_freq=10, nbatches=-1):
         metrics = calc_metrics(out, trg)
         total_metrics += metrics
 
-        # if print_freq > 0:
-        #     partial_loss += loss
-        #     partial_metrics += metrics
+        if print_freq > 0:
+            partial_loss += loss
+            partial_metrics += metrics
 
-        # if k % print_freq == 0:
-        #     loss_per_word = total_loss / print_freq  # / total_metrics[0]
-        #     accuracy = partial_metrics[1] / partial_metrics[0]
-        #     print(f"\r{k}, {accuracy}, {loss_per_word}", end="\n")
-        #     partial_loss, partial_metrics = 0, torch.zeros(4)
+        if k % print_freq == 0:
+            loss_per_word = total_loss / print_freq  # / total_metrics[0]
+            accuracy = partial_metrics[1] / partial_metrics[0]
+            print(
+                f"\r{k:5d}/{nbatches}, {accuracy * 100:02.3f}%, {loss_per_word:0.4f}, {(time.perf_counter() - t0) / 60:02.3f} min",
+                end="\n")
+            partial_loss, partial_metrics = 0, torch.zeros(4)
 
     if metrics[0] > 0:
         loss_per_word = total_loss / k  # / total_metrics[0]
@@ -101,7 +106,8 @@ def train_epoch(model, training_data, optimizer, print_freq=10, nbatches=-1):
 
 
 def train(training_data, validation_data, device, settings,
-          vocab_size, epochs=1, load_file="", save_file="model", n_warmup_steps=128000):
+          vocab_size, epochs=1, load_file="", save_file="model",
+          n_warmup_steps=128000, nbatches=-1):
     """
     Trains the model for.
 
@@ -115,18 +121,13 @@ def train(training_data, validation_data, device, settings,
     """
 
     def print_performances(header, loss, accu, start_time):
-        print('  - {header:12} ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, ' \
-              'elapse: {elapse:3.3f} min'.format(
-            header=f"({header})", ppl=math.exp(min(loss, 100)),
-            accu=100 * accu, elapse=(time.time() - start_time) / 60))
+        print('  - {header:12} loss: {loss: 8.5f}, accuracy: {accu:3.3f} %, ' \
+              'elapse: {elapse:3.3f} min'.format(header=f"({header})", loss=loss, accu=100 * accu,
+                                                 elapse=(time.time() - start_time) / 60))
 
     if os.path.isfile(load_file):
         current, model, optimizer = load_model(load_file, device, vocab_size)
     else:
-        # import psutil
-        # process = psutil.Process(os.getpid())
-        # m1 = process.memory_info().rss
-
         current = 0
         model = AIAYNTransformer(
             vocab_size=vocab_size,
@@ -136,8 +137,6 @@ def train(training_data, validation_data, device, settings,
             d_feedforward=settings['d_feedforward'],
             p_dropout=settings['dropout']).to(device)
 
-        # m2 = process.memory_info().rss
-        # print((m2 - m1) / 2 ** 30)
         optimizer = optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09)
         optimizer = ScheduledOptim(optimizer, 2.0, settings['d_model'], n_warmup_steps)
 
@@ -146,7 +145,7 @@ def train(training_data, validation_data, device, settings,
         print('[ Epoch', epoch_i, ']')
 
         start = time.time()
-        train_loss, train_accu = train_epoch(model, training_data, optimizer)
+        train_loss, train_accu = train_epoch(model, training_data, optimizer, nbatches=nbatches)
         print_performances('Training', train_loss, train_accu, start)
 
         start = time.time()
@@ -176,13 +175,13 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--batch_size', type=int, default=256)
     parser.add_argument('-warmup', '--n_warmup_steps', type=int, default=128000)
     parser.add_argument('-log', type=str, default="")
-    parser.add_argument('-save_model', type=str, default="")
+    parser.add_argument('-save_model', type=str, default="saved_models/model")
+    parser.add_argument('-load_model', type=str, default="saved_models/model.chkpt")
     parser.add_argument('-cuda', default=False, action='store_true')
 
     args = parser.parse_args()
 
     device = torch.device('cuda') if args.cuda else torch.device('cpu')
-    # device = torch.device('cuda')
     settings = BASE_MODEL if args.model == 'base' else BIG_MODEL
     n_warmup_steps = args.n_warmup_steps
     batch_size = args.batch_size
@@ -191,5 +190,5 @@ if __name__ == "__main__":
     vocab_size = len(fields['src'].vocab)
 
     train(train_data, val_data, device, n_warmup_steps=n_warmup_steps,
-          settings=settings, epochs=400, load_file="saved_models/model.chkpt",
-          save_file='saved_models/test', vocab_size=vocab_size)
+          settings=settings, epochs=400, load_file=args.load_model,
+          save_file=args.save_model, vocab_size=vocab_size, nbatches=-1)
