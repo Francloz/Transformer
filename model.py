@@ -1,5 +1,6 @@
 import math
 
+import torch.autograd.profiler as profiler
 from torch.nn.modules.transformer import *
 from torch.nn.modules.transformer import _get_activation_fn
 
@@ -58,14 +59,17 @@ class AIAYNTransformerEncoderLayer(torch.nn.Module):
             see the docs in Transformer class.
         """
         # Multi-head attention
-        src2 = self.self_attn(src, src, src, attn_mask=src_mask,
-                              key_padding_mask=src_key_padding_mask)[0]
-        # Add & Norm
-        src = self.norm1(src + self.dropout1(src2))
-        # FF
-        src2 = self.linear2(self.activation(self.linear1(src)))
-        # Add & Norm
-        src = self.norm2(src + self.dropout2(src2))
+        with profiler.record_function("attention"):
+            src2 = self.self_attn(src, src, src, attn_mask=src_mask,
+                                  key_padding_mask=src_key_padding_mask)[0]
+
+        with profiler.record_function("not_attention"):
+            # Add & Norm
+            src = self.norm1(src + self.dropout1(src2))
+            # FF
+            src2 = self.linear2(self.activation(self.linear1(src)))
+            # Add & Norm
+            src = self.norm2(src + self.dropout2(src2))
         return src
 
 
@@ -115,13 +119,15 @@ class AIAYNTransformerDecoderLayer(torch.nn.Module):
         Shape:
             see the docs in Transformer class.
         """
+        # with profiler.record_function("attention"):
         # Target attention
         tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
+        # with profiler.record_function("not_attention"):
         tgt = self.norm1(tgt + self.dropout1(tgt2))
-        # Middle attention (mixed)
         tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)[0]
+        # with profiler.record_function("not_attention"):
         tgt = self.norm2(tgt + self.dropout2(tgt2))
         # Output attention
         tgt2 = self.linear2(self.activation(self.linear1(tgt)))
@@ -206,7 +212,6 @@ class AIAYNTransformer(torch.nn.Module):
 
         src = self.embedding(src)
         tgt = self.embedding(tgt)
-
         src = self.pos_encoder(src)
         tgt = self.pos_encoder(tgt)
 

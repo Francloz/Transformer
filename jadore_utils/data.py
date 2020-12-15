@@ -347,6 +347,121 @@ def main_wo_bpe():
     pickle.dump(data, open(opt.save_data, 'wb'))
 
 
+import numpy as np
+
+
+def truncate(original, length):
+    return original + [1] * (length - len(original))
+
+
+def create_length_data(arr):
+    current = 0
+    count = []
+    for i in range(arr.shape[0]):
+        e = arr[i][0]
+        if e > current:
+            count.append([i, e])
+            current = e
+    return count
+
+
+def merge_to_npy(src, trg, out, vocab, MAX_LEN, mmap=False):
+    rows = 0
+
+    # if mmap:
+    print("[Info] Counting lines... ")
+    with open(src, encoding='utf-8') as fsrc:
+        with open(trg, encoding='utf-8') as ftrg:
+            while True:
+                linesrc = fsrc.readline()
+                linetrg = ftrg.readline()
+                if not linesrc or not linetrg:
+                    break
+                tokenssrc = linesrc.split()
+                tokenstrg = linetrg.split()
+
+                if 0 < len(tokenssrc) < MAX_LEN and 0 < len(tokenstrg) < MAX_LEN:
+                    rows += 1
+    if not mmap:
+        f_npy = np.empty(dtype=np.int, shape=(rows, 2 * MAX_LEN + 1))
+    else:
+        f_npy = np.memmap(out + '.dat', dtype=np.int, mode='w+', shape=(rows, 2 * MAX_LEN + 1))
+
+    print("[Info] Filling array.")
+    k = 0
+    with open(src, encoding='utf-8') as src:
+        with open(trg, encoding='utf-8') as trg:
+            while True:
+                linesrc = src.readline()
+                linetrg = trg.readline()
+                if not linesrc or not linetrg:
+                    break
+                tokenssrc = linesrc.split()
+                tokenstrg = linetrg.split()
+
+                max_length = max(len(tokenstrg), len(tokenssrc))
+                if 0 < len(tokenssrc) < MAX_LEN and 0 < len(tokenstrg) < MAX_LEN:
+                    tokenssrc = truncate([vocab[token] for token in tokenssrc], MAX_LEN)
+                    tokenstrg = truncate([vocab[token] for token in tokenstrg], MAX_LEN)
+                    f_npy[k] = np.array([max_length] + tokenssrc + tokenstrg)
+                    k += 1
+                    print(f"\r[Info] Progress: {k / rows * 100:3.2f}% ", end="")
+
+    print("\n[Info] Sorting the array by sentence length.")
+    if not mmap:
+        f_npy = np.sort(f_npy.view('i4,' * f_npy.shape[1]), order=['f0'], axis=0).view(np.int)
+    else:
+        f_npy.sort(axis=0)
+
+    print("[Info] Printing first and last rows of array.")
+    print(f_npy[0])
+    print(f_npy[-1])
+
+    if not mmap:
+        np.save(out + ".npy", arr=f_npy)
+    print("[Info] Create count file.")
+    count = create_length_data(f_npy)
+    np.save(out + ".count", arr=count)
+
+
+def main_npy(path):
+    MAX_LEN = 100
+    enc_train_files_prefix = path + 'train'
+    enc_valid_files_prefix = path + 'val'
+    if os.path.isfile(path + ".vocab"):
+        print("[Info] Vocab file found. Loading file.")
+        vocab = pickle.load(open(path + ".vocab", 'rb'))
+    else:
+        print("[Info] Counting tokens to form vocabulary")
+        d = {}
+        for prefix in [enc_train_files_prefix, enc_train_files_prefix]:
+            for ending in [".src", ".trg"]:
+                with open(prefix + ending, encoding='utf-8') as f:
+                    while True:
+                        print(f"\r[Info] Words found: {len(d):10d}   ", end="")
+                        line = f.readline()
+                        if not line:
+                            break
+                        for token in line.split():
+                            if token in d:
+                                d[token] += 1
+                            else:
+                                d[token] = 1
+        specials = ('<unk>', '<pad>')
+        for special in specials:
+            d[special] = 1
+
+        vocab = torchtext.vocab.Vocab(d, min_freq=2)
+        print('[Info] Dumping the processed data to pickle file', path)
+        pickle.dump(vocab, open(path + ".vocab", 'wb'))
+
+    print("[Info] Merging files")
+    merge_to_npy(enc_train_files_prefix + ".src", enc_train_files_prefix + ".trg", enc_train_files_prefix,
+                 vocab, MAX_LEN)
+    merge_to_npy(enc_valid_files_prefix + ".src", enc_valid_files_prefix + ".trg", enc_valid_files_prefix,
+                 vocab, MAX_LEN)
+
+
 if __name__ == '__main__':
     # main_wo_bpe()
-    main()
+    main_npy("G:\\Documents\\Datasets\\Tranformer\\tmp\\fren\\fren-")
